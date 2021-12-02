@@ -11,11 +11,16 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(lubridate)
 library(ggcorrplot)
+library(kableExtra)
 ```
 
 ```{r read_data, message = FALSE}
+# Read Data
 aldi <- read_csv(here::here("aldistats.csv"))
 aldi$Date <- mdy(aldi$Date)
+
+# Change year to a factor (for graphing)
+# Rename variables for tidy data
 aldi <- aldi %>% 
     mutate(year = as_factor(year(Date)),
            obs_num = seq.int(nrow(aldi))) %>% 
@@ -35,9 +40,11 @@ aldi <- aldi %>%
          sales = Sales)
 ```
 
+## Various Preliminary Explorations
+
 ```{r percent_by_year}
 aldi %>% 
-  ggplot(aes(x = Percent, group = year, fill = year)) +
+  ggplot(aes(x = percent, group = year, fill = year)) +
   geom_boxplot() +
   scale_fill_brewer(palette = "PuRd") +
   labs(
@@ -45,8 +52,6 @@ aldi %>%
   ) +
   xlab("IPH Percent")
 ```
-
-## Preliminary Explorations
 
 ```{r days_by_year}
 aldi %>% 
@@ -68,6 +73,8 @@ aldi %>%
 ```
 
 ```{r IPH_vs_goal}
+# Plot with a lot of customizations
+# Not really the best output (probably wouldn't publish it)
 iph_goal <- aldi %>% 
   ggplot(aes(x = iph, y = iph_goal, color = year)) +
   geom_point() +
@@ -89,14 +96,15 @@ iph_goal + theme(
 
 ## Exploratory Data Analysis
 
-Let's look at some of these variables individually. If we can model them, we may be able to use a special distribution to simulate them.
+Let's look at some of these variables individually.
 
 ### Single Variables
 
-```{r}
+```{r eda_functions}
 # Function that creates a named vector based off of an inputted summary stat
 summaries <- function(func) {aldi %>% 
     select_if(is.numeric) %>% 
+    na.exclude() %>% 
     map_dbl(func) %>% 
     map_dbl(round, digits = 3)
 }
@@ -115,16 +123,30 @@ plots <- function(var, binwidth) {
 
 # Create a dataframe with basic summary stats for all variables
 summary_stats <- enframe(summaries(mean), name = "statistic", value = "mean") %>% 
-  mutate(median = unname(summaries(median)),
+  mutate(
+         median = unname(summaries(median)),
              sd = unname(summaries(sd)),
              min = unname(summaries(min)),
              max = unname(summaries(max)),
-         range = max - min
+         range = max - min,
+         mn_gr_mdn = ifelse(mean > median, TRUE, FALSE)
              )
 ```
 
+```{r plot_vars}
+plots(var = 'one_code', binwidth = 5)
+
+```
+
 ```{r}
-plots('one_code', 5)
+sum_stat_tbl <- summary_stats %>%
+  kbl(col.names = c("Statistic", "Mean", "Median", "Standard Deviation", "Min", "Max", "Range", "Mean > Median?")) %>%
+  kable_material("hover", fixed_thead = T) %>% 
+  column_spec(8, color = ifelse(summary_stats$mn_gr_mdn == "TRUE", "blue", '#9A18C2')) %>% 
+  column_spec(2, color = "blue") %>% 
+  column_spec(3, color = "#9A18C2")
+sum_stat_tbl
+#save_kable(sum_stat_tbl, `summary_stats.png`)
 ```
 
 
@@ -132,12 +154,13 @@ plots('one_code', 5)
 ### Multiple Variables
 
 ```{r correlation_matrix}
+# Select only numeric variables from original dataset
 aldi_num <- aldi %>% 
   select_if(is.numeric)
 aldi_num <- aldi_num[-c(11, 12, 13, 14)]
 
 # Matrix of Correlation Values
-corr <- round(cor(aldi_num), 1)
+corr <- round(cor(aldi_num), 2)
 
 # Visualization of Correlation Matrix
 ggcorrplot(
@@ -146,99 +169,99 @@ ggcorrplot(
   type = "lower",
   lab = TRUE,
   outline.color = "white",
-  ggtheme = ggplot2::theme_gray,
+  ggtheme = ggplot2::theme_dark,
   colors = c("#6D9EC1", "white", "#E46726")
 )
 ```
 
 Interestingly enough, there are not a lot of strong correlations here. The 0.7 value between Percent and Avg Items/Min and Items Per Hour is not surprising since the Percent is calculated using Items Per Hour. We do see a decently strong negative correlation Percent and Avg Sec/Tender. The most surprising to me are the ones with Average Cart. The IPH Goal should not be so correlated with Average Cart since cashiers cannot control how much money a customer will spend. There is some sense to the correlation between Average Cart and Items Per Hour: typically customers spending more money will have more items in their cart which allows the cashier to move faster. 
 
-```{r}
+```{r message=FALSE}
 aldi %>% 
-  ggplot(aes(x = `Items Per Hour`, y = `IPH Goal`, color = year)) +
+  ggplot(aes(x = iph, y = iph_goal, color = year)) +
   geom_point() +
   geom_smooth(color = "black", method = "lm")
 ```
 
 Not surprisingly, as IPH increases, so does the IPH Goal, with few observations outside of the positve, linear pattern. 
 
-```{r}
+```{r message=FALSE}
 aldi %>% 
-  ggplot(aes(x = `Avg Items/Min`, y = `IPH Goal`, color = year)) +
+  ggplot(aes(x = avg_items_min, y = iph_goal, color = year)) +
   geom_point() +
   geom_smooth(color = "black", method = "lm")
 ```
 
 Somehow, it does not appear that Average Items Per Minute has a substantive effect on the IPH Goal. There is much less of a linear pattern; rather, it has a circular, cloud shape. I would have liked to see more of a relationship here. The faster you go over time, the higher your goal should be. 
 
-```{r}
+```{r message=FALSE}
 aldi %>% 
-  ggplot(aes(x = `Avg Sec/Tender`, y = `IPH Goal`, color = year)) +
+  ggplot(aes(x = avg_sec_tender, y = iph_goal, color = year)) +
   geom_point() +
   geom_smooth(color = "black", method = "lm")
 ```
 
 It looks like there is a slightly negative correlation between these two variables. However, it is to be determined if there this relationship is signficiant (at first glance, it does not appear so).
 
-```{r}
+```{r message=FALSE}
 aldi %>% 
-  ggplot(aes(x = `Avg Sec Btwn Cust`, y = `IPH Goal`, color = year)) +
+  ggplot(aes(x = avg_sec_btwn_cust, y = iph_goal, color = year)) +
   geom_point() +
   geom_smooth(color = "black", method = "lm")
 ```
 
 There appears to be no relationship here. Outliers are pulling the line of best fit to a positive direction when the two variables don't appear to be related to each other.
 
-```{r}
+```{r message=FALSE}
 aldi %>% 
-  ggplot(aes(x = `# Customers`, y = `IPH Goal`, color = year)) +
+  ggplot(aes(x = n_customers, y = iph_goal, color = year)) +
   geom_point() +
   geom_smooth(color = "black", method = "lm")
 ```
 
 Number of Customers looks to have zero effect on the creation of the IPH Goal. This makes sense as the number of customers a cashier has cannot be controlled by the cashier themselves. (However, this can be "controlled" as managers choose to keep certain cashiers ringing for longer.)
 
-```{r}
+```{r message=FALSE}
 aldi %>% 
-  ggplot(aes(x = `Average Cart`, y = `IPH Goal`, color = year)) +
+  ggplot(aes(x = avg_cart, y = iph_goal, color = year)) +
   geom_point() +
   geom_smooth(color = "black", method = "lm")
 ```
 
 This is a very surprising result. Average Cart, the variable that measures the average transaction total each day is strongly correlated with the IPH Goal. This doesn't seem right...cashiers cannot control how much a customer spends nor which customer comes to their checklane. 
 
-```{r}
+```{r message=FALSE}
 aldi %>% 
-  ggplot(aes(x = `1-Code %`, y = `IPH Goal`, color = year)) +
+  ggplot(aes(x = one_code, y = iph_goal, color = year)) +
   geom_point() +
   geom_smooth(color = "black", method = "lm")
 ```
 
 I am not sure what trend I expect to see here. 1-Code % is not necessarily associated with cashier speed but is can be a factor associated with it. Many cashiers use the 1-Code to stop the timers on some of the statistics here. I believe that a higher 1-Code should mean a higher goal.
 
-```{r}
+```{r message=FALSE}
 aldi %>% 
   #filter(Voids < 6) %>% 
-  ggplot(aes(x = Voids, y = `IPH Goal`, color = year)) +
+  ggplot(aes(x = voids, y = iph_goal, color = year)) +
   geom_point() +
   geom_smooth(color = "black", method = "lm")
 ```
 
 Both with and without the outlier, there is very little relationship between voids and IPH Goal. This does make sense as voids have little influence on speed. I should have recorded *number of voids* rather than voids as percentage of sales. We want cashiers to have as little voids as possible to help them not be suspected of theft and to help them not have to stop and void an item.
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 aldi %>% 
-  ggplot(aes(x = `Avg Item Price`, y = `IPH Goal`, color = year)) +
+  ggplot(aes(x = avg_item_price, y = iph_goal, color = year)) +
   geom_point() +
   geom_smooth(color = "black", method = "lm")
 ```
 
 I am surprised to see a relationship here, even though it is negative. Cashiers have no control over the price of items. However, I don't think that Item Price has that big of an effect on the IPH Goal. There are two outliers - (2.83, 950) and (3.1, 890) - that may be dragging the right end of the line down and one outlier - (1.9, 1810) - that may be bringing the left end up. 
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 aldi %>% 
-  filter(`IPH Goal` < 1700 & `IPH Goal` > 1000) %>% 
-  ggplot(aes(x = `Avg Item Price`, y = `IPH Goal`, color = year)) +
+  filter(iph_goal < 1700 & iph_goal > 1000) %>% 
+  ggplot(aes(x = avg_item_price, y = iph_goal, color = year)) +
   geom_point() +
   geom_smooth(color = "black", method = "lm")
 ```
@@ -250,8 +273,71 @@ Removing those possible outliers, we still see a negative relationship. I don't 
 Let's see if we can predict the IPH Goal for me. It is currently unknown how the goal is generated and the goal only appears after each day's cashiering. Can we predict the IPH goal for the next day based on existed data? Later on, we will try to create a new way of generating a goal.
 
 ```{r linear_model}
-model_nointer <- lm(`IPH Goal` ~ `Items Per Hour` + `Avg Items/Min` + `Avg Sec/Tender` + `Avg Sec Btwn Cust` + `# Customers` + `Average Cart` + `1-Code %` + Voids, data = aldi)
+model_nointer <- lm(iph_goal ~ iph + avg_items_min + avg_sec_tender + avg_sec_btwn_cust + n_customers + avg_cart + one_code + voids, data = aldi)
 
 summary(model_nointer)
+```
+
+Although we haven't checked our assumptions, let's fit the model again without the non-significant variables from this first model. 
+
+```{r updated_linear_model}
+model2_nointer <- lm(iph_goal ~ iph + avg_items_min + avg_sec_tender + avg_sec_btwn_cust + avg_cart, data = aldi)
+
+summary(model2_nointer)
+```
+
+The regression equation (assuming linearity is applicable) for predicted IPH Goal is $\text{Predicted IPH Goal} = 182.698 + 0.696 \times \text{IPH} - 9.782 \times \text{Avg Items/Min} + 19.297 \times \text{Avg Sec/Tender} + 18.559 \times \text{Avg Sec Btwn Cust} + 3.8112 \times \text{Average Cart Total}$. 
+
+# Simulations of Data (Not related to Aldi)
+
+```{r simulations}
+# Simulate 1000 random numbers from many distributions learned in STA 412
+set.seed(572341046)
+rand_nums <- tibble(
+  expo = rexp(1000, rate = 4),
+  poisson = rpois(1000, lambda = 7),
+  normal = rnorm(1000, mean = 4, sd = .1113),
+  beta = rbeta(1000, 3, 4),
+  gamma = rgamma(1000, shape = 3, scale = 4),
+  geom = rgeom(1000, .4),
+  binom = rbinom(1000, 3, .4),
+  uniform = runif(1000, min = 7, max = 13),
+  hypergeom = rhyper(nn = 1000, m = 7, n = 13, k = 5),
+  chisq = rchisq(1000, 13)
+)
+
+# Calculate various statistics for each of the simulated distributions
+rand_stats <- rand_nums %>% 
+  pivot_longer(cols = everything(), names_to = "distribution", values_to = "values") %>% 
+  group_by(distribution) %>% 
+  mutate(across(.cols = everything(), list(mean = mean, median = median, sd = sd, min = min, max = max))) %>% 
+  select(distribution, contains("_")) %>% 
+  ungroup() %>% 
+  slice_head(n = 10)
+```
+
+```{r bootstrap}
+# Create 1000 bootstrap samples for each distribution,  calculate the mean of each sample and then the mean of the means
+boots <- rand_nums %>% 
+  map(~ replicate(100, sample(.x, 1000, replace = TRUE)) %>% 
+  map(mean)) %>% 
+  map(unlist) %>% 
+  map(mean) %>% 
+  unlist()
+
+# Append bootstrap means to statistics df above
+# Shows effect of law of large numbers
+rand_stats %>% 
+  rename(
+    mean = values_mean,
+    median = values_median,
+    sd = values_sd,
+    min = values_min,
+    max = values_max
+  ) %>% 
+  mutate(boot_mean = unname(boots),
+         expected_value = c(4, 7, 4, 3/7, 12, 2.5, 1.2, 10, 1.75, 13))
+
+
 ```
 
