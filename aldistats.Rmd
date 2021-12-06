@@ -1,6 +1,8 @@
 ---
 title: "Visualizations of My Aldi Performance"
-output: html_document
+author: "Ian Curtis"
+output: github_document
+always_allow_html: true
 ---
 
 ```{r setup, include=FALSE}
@@ -62,7 +64,7 @@ aldi %>%
   labs(title = "Number of Days Cashiered", subtitle = "By Year")
 ```
 
-```{r IPH_over_time}
+```{r IPH_over_time, message=FALSE}
 aldi %>% 
   ggplot(aes(x = obs_num, y = percent)) +
   geom_point() + 
